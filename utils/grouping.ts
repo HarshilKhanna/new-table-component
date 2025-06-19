@@ -1,6 +1,6 @@
 import type { TaskData, TaskRow } from "../types/task"
 import type { FilterState } from "../components/FilterPanel"
-import type { SortState } from "../components/SortPanel"
+import type { SortState } from "../components/FilterPanel/SortPanel"
 
 export function groupTasksByAttributes(tasks: TaskData[]): TaskRow[] {
   const groupedRows: TaskRow[] = []
@@ -103,6 +103,18 @@ export function applySorting(rows: TaskRow[], sortStates: SortState[]): TaskRow[
     return rows
   }
 
+  // If sorting by taskId, also sort the tasks array inside each TaskRow
+  const taskIdSort = sortStates.find(s => s.field === 'taskId');
+  if (taskIdSort) {
+    rows.forEach(row => {
+      row.tasks = [...row.tasks].sort((a, b) => {
+        const aNum = typeof a.taskId === 'string' ? parseInt(a.taskId.replace(/\D/g, ''), 10) : Number(a.taskId);
+        const bNum = typeof b.taskId === 'string' ? parseInt(b.taskId.replace(/\D/g, ''), 10) : Number(b.taskId);
+        return taskIdSort.order === 'asc' ? aNum - bNum : bNum - aNum;
+      });
+    });
+  }
+
   return [...rows].sort((a, b) => {
     for (const sortState of sortStates) {
       const { field, order } = sortState
@@ -116,6 +128,11 @@ export function applySorting(rows: TaskRow[], sortStates: SortState[]): TaskRow[
       // Handle numeric fields
       if (field === "triggeredTasks" || field === "openTasks") {
         comparison = Number(aValue) - Number(bValue)
+      } else if (field === "taskId") {
+        // Extract numeric part for taskId (e.g., 'T015' -> 15)
+        const aNum = typeof aValue === 'string' ? parseInt(aValue.replace(/\D/g, ''), 10) : Number(aValue);
+        const bNum = typeof bValue === 'string' ? parseInt(bValue.replace(/\D/g, ''), 10) : Number(bValue);
+        comparison = aNum - bNum;
       } else {
         // Handle string fields
         comparison = String(aValue).localeCompare(String(bValue))

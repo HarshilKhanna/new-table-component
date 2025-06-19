@@ -11,9 +11,8 @@ import {
   applySorting,
 } from "../../utils/grouping"
 import TaskDetails from "../TaskDetails"
-import FilterPanel, { type FilterState } from "../FilterPanel"
-import SortPanel, { type SortState } from "../SortPanel"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "../ui/resizable";
+import TableSidebar from './TableSidebar';
 
 interface Column {
   id: string;
@@ -43,10 +42,11 @@ interface TaskTableProps {
   tasks: TaskData[]
 }
 
+type FilterState = { condition: 'AND' | 'OR', filters: Record<string, { operator: string, value: string }> };
+type SortState = { field: string, order: 'asc' | 'desc' };
+
 const TaskTable: React.FC<TaskTableProps> = ({ tasks }) => {
   const [groupedRows, setGroupedRows] = useState<TaskRow[]>(() => groupTasksByAttributes(tasks))
-  const [filterPanelOpen, setFilterPanelOpen] = useState(false)
-  const [sortPanelOpen, setSortPanelOpen] = useState(false)
   const [filterState, setFilterState] = useState<FilterState>({ condition: "AND", filters: {} })
   const [sortStates, setSortStates] = useState<SortState[]>([])
   const [filteredTasks, setFilteredTasks] = useState<TaskData[]>(tasks)
@@ -73,11 +73,25 @@ const TaskTable: React.FC<TaskTableProps> = ({ tasks }) => {
   const [columnVisibilityOpen, setColumnVisibilityOpen] = useState(false);
   const [pendingVisibleColumns, setPendingVisibleColumns] = useState<Set<string>>(new Set(columns.map(col => col.id)));
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(new Set(columns.map(col => col.id)));
+  const [pendingSortColumn, setPendingSortColumn] = useState('');
+  const [pendingSortDir, setPendingSortDir] = useState<'asc' | 'desc'>('asc');
+  const [pendingIsTransposed, setPendingIsTransposed] = useState(isTransposed);
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [sortRules, setSortRules] = useState<SortState[]>([{ field: '', order: 'asc' }]);
+  const [filters, setFilters] = useState([{ field: '', operator: 'is', value: '' }]);
+  const [condition, setCondition] = useState<'AND' | 'OR'>('AND');
 
   // Sync visibleColumns with columns state
   useEffect(() => {
     setPendingVisibleColumns(new Set(columns.map(col => col.id).filter(id => visibleColumns.has(id))));
   }, [columns]);
+
+  // Sync pending state with actual state when columns or isTransposed changes
+  useEffect(() => {
+    setPendingSortColumn(columnSort?.field ? String(columnSort.field) : '');
+    setPendingSortDir(columnSort?.order || 'asc');
+    setPendingIsTransposed(isTransposed);
+  }, [columnSort, isTransposed]);
 
   const handleToggleColumn = (colId: string) => {
     setPendingVisibleColumns(prev => {
@@ -113,7 +127,7 @@ const TaskTable: React.FC<TaskTableProps> = ({ tasks }) => {
 
   const totalTasks = useMemo(() => filteredTasks.length, [filteredTasks])
   const totalRows = useMemo(() => groupedRows.length, [groupedRows])
-  const activeFiltersCount = useMemo(() => Object.keys(filterState.filters).length, [filterState.filters])
+  const activeFiltersCount = useMemo(() => Object.keys(filterState.filters || {}).length, [filterState.filters])
   const activeSortsCount = useMemo(() => sortStates.length, [sortStates])
 
   const handleColumnSort = (field: keyof TaskRow) => {
@@ -223,7 +237,6 @@ const TaskTable: React.FC<TaskTableProps> = ({ tasks }) => {
     }
 
     setGroupedRows(newRows)
-    setFilterPanelOpen(false)
   }
 
   const handleApplySort = (newSortStates: SortState[]) => {
@@ -232,7 +245,6 @@ const TaskTable: React.FC<TaskTableProps> = ({ tasks }) => {
     // Apply sorting to current grouped rows
     const sortedRows = applySorting(groupedRows, newSortStates)
     setGroupedRows(sortedRows)
-    setSortPanelOpen(false)
   }
 
   const handleDragStart = (e: React.DragEvent<HTMLTableCellElement>, columnId: string) => {
@@ -392,1000 +404,854 @@ const TaskTable: React.FC<TaskTableProps> = ({ tasks }) => {
     window.removeEventListener('mouseup', handleResizeEnd);
   };
 
-  return (
-    <div
-      style={{
-        fontFamily: 'ey_interstate, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        background: '#fff',
-        borderRadius: '6px',
-        border: '1px solid #dfe7ef',
-        padding: 0,
-        margin: '32px auto',
-        maxWidth: '1400px',
-        minWidth: '1200px',
-        overflow: 'hidden',
-      }}
-    >
-      {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '16px',
-          borderBottom: '1px solid #dfe7ef',
-          background: '#fff',
-        }}
-      >
-        <div>
-          <h1 style={{ 
-            fontSize: '16px', 
-            fontWeight: 600, 
-            color: '#2e2e38', 
-            margin: 0,
-            fontFamily: 'ey_interstate, Inter'
-          }}>Table</h1>
-          <p style={{ 
-            fontSize: '14px', 
-            color: '#6f6f7a', 
-            margin: '4px 0 0 0',
-            fontFamily: 'ey_interstate, Inter'
-          }}>
-            Descriptive text that describes your page or content.
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
-          {renderTransposeButton()}
-          <div style={{ position: 'relative', display: 'inline-block' }}>
-            <button
-              onClick={() => setColumnVisibilityOpen(v => !v)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                padding: "10px 16px",
-                border: "1px solid #d1d5db",
-                borderRadius: "8px",
-                backgroundColor: columnVisibilityOpen ? "#f3f4f6" : "white",
-                color: "#374151",
-                cursor: "pointer",
-                fontSize: "14px",
-                fontWeight: "500",
-                position: "relative",
-                transition: "all 0.2s ease",
-              }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg>
-              Columns
-            </button>
-            {columnVisibilityOpen && (
-              <div
-                style={{
-                  position: "absolute",
-                  left: 0,
-                  top: '100%',
-                  minWidth: "220px",
-                  background: "#fff",
-                  border: "1px solid #dfe7ef",
-                  borderRadius: "8px",
-                  boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
-                  zIndex: 100,
-                  padding: "16px 12px 12px 12px",
-                }}
-              >
-                <div style={{ fontWeight: 600, fontSize: "14px", marginBottom: "8px" }}>Show Columns</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "220px", overflowY: "auto" }}>
-                  {columns.filter(col => col.id !== 'expand').map(col => (
-                    <label key={col.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer" }}>
-                      <input
-                        type="checkbox"
-                        checked={pendingVisibleColumns.has(col.id)}
-                        onChange={() => handleToggleColumn(col.id)}
-                        style={{ accentColor: "#3b82f6" }}
-                      />
-                      {col.label}
-                    </label>
-                  ))}
-                </div>
-                <button
-                  onClick={handleApplyColumnVisibility}
-                  style={{
-                    marginTop: "12px",
-                    width: "100%",
-                    padding: "8px 0",
-                    border: "none",
-                    borderRadius: "6px",
-                    background: "#3b82f6",
-                    color: "#fff",
-                    fontWeight: 600,
-                    fontSize: "14px",
-                    cursor: "pointer",
-                    transition: "background 0.2s",
-                  }}
-                >
-                  Apply
-                </button>
-              </div>
-            )}
-          </div>
-          <input
-            type="text"
-            placeholder="Search tasks..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            style={{
-              padding: "10px 16px",
-              border: "1px solid #d1d5db",
-              borderRadius: "8px",
-              fontSize: "14px",
-              minWidth: "220px",
-              outline: "none",
-              transition: "border 0.2s",
-            }}
-          />
-          <button
-            onClick={() => setFilterPanelOpen(true)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              padding: "10px 16px",
-              border: "1px solid #d1d5db",
-              borderRadius: "8px",
-              backgroundColor: "white",
-              color: "#374151",
-              cursor: "pointer",
-              fontSize: "14px",
-              fontWeight: "500",
-              position: "relative",
-              transition: "all 0.2s ease",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = "#f9fafb"
-              e.currentTarget.style.borderColor = "#9ca3af"
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = "white"
-              e.currentTarget.style.borderColor = "#d1d5db"
-            }}
-          >
-            <span>⚙</span>
-            Filter
-            {activeFiltersCount > 0 && (
-              <span
-                style={{
-                  position: "absolute",
-                  top: "-6px",
-                  right: "-6px",
-                  backgroundColor: "#dc2626",
-                  color: "white",
-                  borderRadius: "50%",
-                  width: "20px",
-                  height: "20px",
-                  fontSize: "11px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontWeight: "bold",
-                }}
-              >
-                {activeFiltersCount}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setSortPanelOpen(true)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              padding: "10px 16px",
-              border: "1px solid #d1d5db",
-              borderRadius: "8px",
-              backgroundColor: "white",
-              color: "#374151",
-              cursor: "pointer",
-              fontSize: "14px",
-              fontWeight: "500",
-              position: "relative",
-              transition: "all 0.2s ease",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = "#f9fafb"
-              e.currentTarget.style.borderColor = "#9ca3af"
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = "white"
-              e.currentTarget.style.borderColor = "#d1d5db"
-            }}
-          >
-            <span>↕</span>
-            Sort
-            {activeSortsCount > 0 && (
-              <span
-                style={{
-                  position: "absolute",
-                  top: "-6px",
-                  right: "-6px",
-                  backgroundColor: "#059669",
-                  color: "white",
-                  borderRadius: "50%",
-                  width: "20px",
-                  height: "20px",
-                  fontSize: "11px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontWeight: "bold",
-                }}
-              >
-                {activeSortsCount}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={handleExpandAll}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              padding: "10px 16px",
-              border: "1px solid #d1d5db",
-              borderRadius: "8px",
-              backgroundColor: "white",
-              color: "#374151",
-              cursor: "pointer",
-              fontSize: "14px",
-              fontWeight: "500",
-              transition: "all 0.2s ease",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = "#f9fafb"
-              e.currentTarget.style.borderColor = "#9ca3af"
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = "white"
-              e.currentTarget.style.borderColor = "#d1d5db"
-            }}
-          >
-            <span>⊞</span>
-            Expand All
-          </button>
-          <button
-            onClick={handleCollapseAll}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              padding: "10px 16px",
-              border: "1px solid #d1d5db",
-              borderRadius: "8px",
-              backgroundColor: "white",
-              color: "#374151",
-              cursor: "pointer",
-              fontSize: "14px",
-              fontWeight: "500",
-              transition: "all 0.2s ease",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = "#f9fafb"
-              e.currentTarget.style.borderColor = "#9ca3af"
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = "white"
-              e.currentTarget.style.borderColor = "#d1d5db"
-            }}
-          >
-            <span>⊟</span>
-            Collapse All
-          </button>
-        </div>
-      </div>
+  const handleSidebarApply = () => {
+    setSortStates(sortRules.filter(rule => rule.field));
+    setVisibleColumns(new Set(pendingVisibleColumns));
+    setIsTransposed(pendingIsTransposed);
+  };
 
-      {/* Table Content */}
-      <div
-        style={{
-          maxHeight: '70vh',
-          minHeight: '70px',
-          overflowY: 'auto',
-          overflowX: 'auto',
-          background: '#fff',
-        }}
-      >
-        <table
+  const handleSidebarReset = () => {
+    setPendingSortColumn('');
+    setPendingSortDir('asc');
+    setPendingVisibleColumns(new Set(columns.map(col => col.id)));
+    setPendingIsTransposed(false);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
           style={{
-            width: '100%',
-            borderCollapse: 'separate',
-            borderSpacing: 0,
+            fontFamily: 'ey_interstate, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+            background: '#fff',
+            borderRadius: '6px',
+            border: '1px solid #dfe7ef',
+            padding: 0,
+            margin: '32px auto',
+            maxWidth: '1400px',
             minWidth: '1200px',
-            fontFamily: 'ey_interstate, Inter',
+            overflow: 'hidden',
           }}
         >
-          {!isTransposed ? (
-            <>
-              <thead>
-                <tr style={{ background: '#f7f9fb', borderBottom: '1px solid #dfe7ef' }}>
-                  {columns.filter(col => visibleColumns.has(col.id)).map((column, colIdx) => (
-                    <th
-                      key={column.id}
-                      draggable={column.id !== 'expand'}
-                      onDragStart={(e) => handleDragStart(e, column.id)}
-                      onDragOver={handleDragOver}
-                      onDrop={(e) => handleDrop(e, column.id)}
-                      onClick={() => column.id !== 'expand' && handleColumnSort(column.field)}
-                      style={{
-                        padding: '6px 8px',
-                        textAlign: column.textAlign || 'left',
-                        fontWeight: 600,
-                        fontSize: '13px',
-                        color: '#2e2e38',
-                        borderBottom: '1px solid #dfe7ef',
-                        background: '#f7f9fb',
-                        cursor: column.id !== 'expand' ? 'grab' : 'default',
-                        userSelect: 'none',
-                        width: column.width,
-                        minWidth: column.width,
-                        maxWidth: column.width,
-                        position: 'relative',
-                        opacity: draggedColumn === column.id ? 0.5 : 1,
-                        transition: 'transform 0.2s ease, opacity 0.2s ease',
-                        transform: draggedColumn && draggedColumn !== column.id ? 'translateX(0)' : 'none',
-                      }}
-                    >
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        width: '100%',
-                        overflow: 'hidden',
-                      }}>
-                        <div style={{
-                          flex: '1 1 auto',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          minWidth: 0,
-                          overflow: 'hidden',
-                          whiteSpace: 'nowrap',
-                          textOverflow: 'ellipsis',
-                        }}>
-                          {column.label}
-                          {column.id !== 'expand' && columnSort?.field === column.field && (
-                            <span style={{
-                              marginLeft: "4px",
-                              color: columnSort.order === "asc" ? "#007bff" : "#6f6f7a",
-                              flexShrink: 0,
-                            }}>
-                              {columnSort.order === "asc" ? "↑" : "↓"}
-                            </span>
-                          )}
-                        </div>
-                        {column.filterable && (
-                          <div
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveFilterColumn(activeFilterColumn === column.id ? null : column.id);
-                            }}
-                            style={{
-                              cursor: 'pointer',
-                              padding: '4px',
-                              borderRadius: '4px',
-                              transition: 'background-color 0.2s ease',
-                              backgroundColor: activeFilterColumn === column.id ? '#e5e7eb' : 'transparent',
-                              flexShrink: 0,
-                              width: '20px',
-                              height: '20px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                            }}
-                          >
-                            <svg
-                              width="14"
-                              height="14"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke={activeFilterColumn === column.id ? "#007bff" : "#6f6f7a"}
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
-                            </svg>
-                          </div>
-                        )}
-                      </div>
-                      {/* Resizer handle, except for the last column and expand column */}
-                      {column.id !== 'expand' && colIdx < columns.length - 1 && (
-                        <>
-                          {/* Divider line for resizer */}
-                          <div
-                            style={{
-                              position: 'absolute',
-                              right: 0,
-                              top: 0,
-                              width: '2px',
-                              height: '100%',
-                              background: '#d1d5db',
-                              zIndex: 1,
-                              pointerEvents: 'none',
-                            }}
-                          />
-                          {/* Resizer handle */}
-                          <div
-                            onMouseDown={e => handleResizeStart(e, colIdx)}
-                            style={{
-                              position: 'absolute',
-                              right: 0,
-                              top: 0,
-                              width: '8px',
-                              height: '100%',
-                              cursor: 'col-resize',
-                              zIndex: 2,
-                              userSelect: 'none',
-                            }}
-                            onClick={e => e.stopPropagation()}
-                          />
-                        </>
-                      )}
-                      {activeFilterColumn === column.id && (
-                        <div
-                          onClick={(e) => e.stopPropagation()}
+          {/* Header */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '16px',
+              borderBottom: '1px solid #dfe7ef',
+              background: '#fff',
+            }}
+          >
+            <div>
+              <h1 style={{ 
+                fontSize: '16px', 
+                fontWeight: 600, 
+                color: '#2e2e38', 
+                margin: 0,
+                fontFamily: 'ey_interstate, Inter'
+              }}>Table</h1>
+              <p style={{ 
+                fontSize: '14px', 
+                color: '#6f6f7a', 
+                margin: '4px 0 0 0',
+                fontFamily: 'ey_interstate, Inter'
+              }}>
+                Descriptive text that describes your page or content.
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+              <input
+                type="text"
+                placeholder="Search tasks..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                style={{
+                  padding: "10px 16px",
+                  border: "1px solid #d1d5db",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  minWidth: "180px",
+                  outline: "none",
+                  transition: "border 0.2s",
+                }}
+              />
+              <button
+                onClick={() => setShowConfigModal(true)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '10px 16px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  background: 'white',
+                  color: '#374151',
+                  fontWeight: 500,
+                  fontSize: '14px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ display: 'block' }}
+                >
+                  <line x1="4" y1="21" x2="4" y2="14" />
+                  <line x1="4" y1="10" x2="4" y2="3" />
+                  <line x1="12" y1="21" x2="12" y2="12" />
+                  <line x1="12" y1="8" x2="12" y2="3" />
+                  <line x1="20" y1="21" x2="20" y2="16" />
+                  <line x1="20" y1="12" x2="20" y2="3" />
+                  <line x1="1" y1="14" x2="7" y2="14" />
+                  <line x1="9" y1="8" x2="15" y2="8" />
+                  <line x1="17" y1="16" x2="23" y2="16" />
+                </svg>
+                Configure
+              </button>
+            </div>
+          </div>
+
+          {/* Table Content */}
+          <div
+            style={{
+              maxHeight: '70vh',
+              minHeight: '70px',
+              overflowY: 'auto',
+              overflowX: 'auto',
+              background: '#fff',
+            }}
+          >
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'separate',
+                borderSpacing: 0,
+                minWidth: '1200px',
+                fontFamily: 'ey_interstate, Inter',
+              }}
+            >
+              {!isTransposed ? (
+                <>
+                  <thead>
+                    <tr style={{ background: '#f7f9fb', borderBottom: '1px solid #dfe7ef' }}>
+                      {columns.filter(col => visibleColumns.has(col.id)).map((column, colIdx) => (
+                        <th
+                          key={column.id}
+                          draggable={column.id !== 'expand'}
+                          onDragStart={(e) => handleDragStart(e, column.id)}
+                          onDragOver={handleDragOver}
+                          onDrop={(e) => handleDrop(e, column.id)}
+                          onClick={() => column.id !== 'expand' && handleColumnSort(column.field)}
                           style={{
-                            position: 'absolute',
-                            top: '100%',
-                            left: 0,
-                            width: '200px',
-                            backgroundColor: '#fff',
-                            border: '1px solid #dfe7ef',
-                            borderRadius: '6px',
-                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                            padding: '12px',
-                            zIndex: 10,
-                            marginTop: '4px',
-                            animation: 'slideDown 0.2s ease',
+                            padding: '6px 8px',
+                            textAlign: column.textAlign || 'left',
+                            fontWeight: 600,
+                            fontSize: '13px',
+                            color: '#2e2e38',
+                            borderBottom: '1px solid #dfe7ef',
+                            background: '#f7f9fb',
+                            cursor: column.id !== 'expand' ? 'grab' : 'default',
+                            userSelect: 'none',
+                            width: column.width,
+                            minWidth: column.width,
+                            maxWidth: column.width,
+                            position: 'relative',
+                            opacity: draggedColumn === column.id ? 0.5 : 1,
+                            transition: 'transform 0.2s ease, opacity 0.2s ease',
+                            transform: draggedColumn && draggedColumn !== column.id ? 'translateX(0)' : 'none',
                           }}
                         >
-                          <input
-                            type="text"
-                            placeholder="Contains..."
-                            value={columnFilters.find(f => f.field === column.field)?.value || ''}
-                            onChange={(e) => handleColumnFilter(column.field, e.target.value)}
-                            style={{
-                              width: '100%',
-                              padding: '8px 12px',
-                              border: '1px solid #dfe7ef',
-                              borderRadius: '4px',
-                              fontSize: '14px',
-                              outline: 'none',
-                              transition: 'border-color 0.2s ease',
-                            }}
-                            onFocus={(e) => {
-                              e.target.style.borderColor = '#007bff';
-                            }}
-                            onBlur={(e) => {
-                              e.target.style.borderColor = '#dfe7ef';
-                            }}
-                          />
-                        </div>
-                      )}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {groupedRows.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={columns.filter(col => visibleColumns.has(col.id)).length}
-                      style={{
-                        padding: "40px",
-                        textAlign: "center",
-                        color: "#6b7280",
-                      }}
-                    >
-                      {activeFiltersCount > 0 ? "No tasks match the current filters" : "No tasks available"}
-                    </td>
-                  </tr>
-                ) : (
-                  groupedRows.map((row) => (
-                    <React.Fragment key={row.id}>
-                      <tr
-                        style={{
-                          background: '#fff',
-                          borderBottom: '1px solid #dfe7ef',
-                          transition: 'background 0.2s ease, transform 0.2s ease',
-                          cursor: 'pointer',
-                        }}
-                        onClick={() => handleToggleRow(row.id)}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.backgroundColor = '#f7f9fb'
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = '#fff'
-                        }}
-                      >
-                        {columns.filter(col => visibleColumns.has(col.id)).map(column => {
-                          if (column.id === 'expand') {
-                            return (
-                              <td
-                                key={column.id}
-                                style={{
-                                  padding: '6px 8px',
-                                  textAlign: 'center',
-                                  verticalAlign: 'middle',
-                                  width: '32px',
-                                  color: '#6f6f7a',
-                                }}
-                              >
-                                <span style={{ 
-                                  fontSize: '14px',
-                                  display: 'inline-block',
-                                  transform: row.isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                                  transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                                  lineHeight: 1,
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            width: '100%',
+                            overflow: 'hidden',
+                          }}>
+                            <div style={{
+                              flex: '1 1 auto',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              minWidth: 0,
+                              overflow: 'hidden',
+                              whiteSpace: 'nowrap',
+                              textOverflow: 'ellipsis',
+                            }}>
+                              {column.label}
+                              {column.id !== 'expand' && columnSort?.field === column.field && (
+                                <span style={{
+                                  marginLeft: "4px",
+                                  color: columnSort.order === "asc" ? "#007bff" : "#6f6f7a",
+                                  flexShrink: 0,
                                 }}>
-                                  ›
+                                  {columnSort.order === "asc" ? "↑" : "↓"}
                                 </span>
-                              </td>
-                            );
-                          }
-
-                          if (column.id === 'tasks') {
-                            return (
-                              <td
-                                key={column.id}
+                              )}
+                            </div>
+                            {column.filterable && (
+                              <div
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveFilterColumn(activeFilterColumn === column.id ? null : column.id);
+                                }}
                                 style={{
-                                  padding: '6px 8px',
-                                  textAlign: 'center',
-                                  fontSize: '13px',
-                                  fontWeight: '600',
-                                  color: '#3b82f6',
-                                  verticalAlign: 'middle',
-                                  transition: 'transform 0.2s ease',
+                                  cursor: 'pointer',
+                                  padding: '4px',
+                                  borderRadius: '4px',
+                                  transition: 'background-color 0.2s ease',
+                                  backgroundColor: activeFilterColumn === column.id ? '#e5e7eb' : 'transparent',
+                                  flexShrink: 0,
+                                  width: '20px',
+                                  height: '20px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
                                 }}
                               >
-                                <span
+                                <svg
+                                  width="14"
+                                  height="14"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke={activeFilterColumn === column.id ? "#007bff" : "#6f6f7a"}
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+                                </svg>
+                              </div>
+                            )}
+                          </div>
+                          {/* Resizer handle, except for the last column and expand column */}
+                          {column.id !== 'expand' && colIdx < columns.length - 1 && (
+                            <>
+                              {/* Divider line for resizer */}
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  right: 0,
+                                  top: 0,
+                                  width: '2px',
+                                  height: '100%',
+                                  background: '#d1d5db',
+                                  zIndex: 1,
+                                  pointerEvents: 'none',
+                                }}
+                              />
+                              {/* Resizer handle */}
+                              <div
+                                onMouseDown={e => handleResizeStart(e, colIdx)}
+                                style={{
+                                  position: 'absolute',
+                                  right: 0,
+                                  top: 0,
+                                  width: '8px',
+                                  height: '100%',
+                                  cursor: 'col-resize',
+                                  zIndex: 2,
+                                  userSelect: 'none',
+                                }}
+                                onClick={e => e.stopPropagation()}
+                              />
+                            </>
+                          )}
+                          {activeFilterColumn === column.id && (
+                            <div
+                              onClick={(e) => e.stopPropagation()}
+                              style={{
+                                position: 'absolute',
+                                top: '100%',
+                                left: 0,
+                                width: '200px',
+                                backgroundColor: '#fff',
+                                border: '1px solid #dfe7ef',
+                                borderRadius: '6px',
+                                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                                padding: '12px',
+                                zIndex: 10,
+                                marginTop: '4px',
+                                animation: 'slideDown 0.2s ease',
+                              }}
+                            >
+                              <input
+                                type="text"
+                                placeholder="Contains..."
+                                value={columnFilters.find(f => f.field === column.field)?.value || ''}
+                                onChange={(e) => handleColumnFilter(column.field, e.target.value)}
+                                style={{
+                                  width: '100%',
+                                  padding: '8px 12px',
+                                  border: '1px solid #dfe7ef',
+                                  borderRadius: '4px',
+                                  fontSize: '14px',
+                                  outline: 'none',
+                                  transition: 'border-color 0.2s ease',
+                                }}
+                                onFocus={(e) => {
+                                  e.target.style.borderColor = '#007bff';
+                                }}
+                                onBlur={(e) => {
+                                  e.target.style.borderColor = '#dfe7ef';
+                                }}
+                              />
+                            </div>
+                          )}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groupedRows.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={columns.filter(col => visibleColumns.has(col.id)).length}
+                          style={{
+                            padding: "40px",
+                            textAlign: "center",
+                            color: "#6b7280",
+                          }}
+                        >
+                          {activeFiltersCount > 0 ? "No tasks match the current filters" : "No tasks available"}
+                        </td>
+                      </tr>
+                    ) : (
+                      groupedRows.map((row) => (
+                        <React.Fragment key={row.id}>
+                          <tr
+                            style={{
+                              background: '#fff',
+                              borderBottom: '1px solid #dfe7ef',
+                              transition: 'background 0.2s ease, transform 0.2s ease',
+                              cursor: 'pointer',
+                            }}
+                            onClick={() => handleToggleRow(row.id)}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = '#f7f9fb'
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = '#fff'
+                            }}
+                          >
+                            {columns.filter(col => visibleColumns.has(col.id)).map(column => {
+                              if (column.id === 'expand') {
+                                return (
+                                  <td
+                                    key={column.id}
+                                    style={{
+                                      padding: '6px 8px',
+                                      textAlign: 'center',
+                                      verticalAlign: 'middle',
+                                      width: '32px',
+                                      color: '#6f6f7a',
+                                    }}
+                                  >
+                                    <span style={{ 
+                                      fontSize: '14px',
+                                      display: 'inline-block',
+                                      transform: row.isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                                      transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                      lineHeight: 1,
+                                    }}>
+                                      ›
+                                    </span>
+                                  </td>
+                                );
+                              }
+
+                              if (column.id === 'tasks') {
+                                return (
+                                  <td
+                                    key={column.id}
+                                    style={{
+                                      padding: '6px 8px',
+                                      textAlign: 'center',
+                                      fontSize: '13px',
+                                      fontWeight: '600',
+                                      color: '#3b82f6',
+                                      verticalAlign: 'middle',
+                                      transition: 'transform 0.2s ease',
+                                    }}
+                                  >
+                                    <span
+                                      style={{
+                                        backgroundColor: '#dbeafe',
+                                        padding: '4px 12px',
+                                        borderRadius: '12px',
+                                        display: 'inline-block',
+                                        transition: 'transform 0.2s ease',
+                                      }}
+                                    >
+                                      {row.tasks.length}
+                                    </span>
+                                  </td>
+                                );
+                              }
+
+                              if (column.id === 'owner') {
+                                return (
+                                  <td
+                                    key={column.id}
+                                    style={{
+                                      padding: '6px 8px',
+                                      fontSize: '13px',
+                                      color: '#2e2e38',
+                                      verticalAlign: 'middle',
+                                      textAlign: column.textAlign,
+                                      transition: 'transform 0.2s ease',
+                                    }}
+                                  >
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <img
+                                        src={'/placeholder-user.jpg'}
+                                        alt="Owner"
+                                        style={{
+                                          width: '22px',
+                                          height: '22px',
+                                          borderRadius: '50%',
+                                          objectFit: 'cover',
+                                          background: '#e5e7eb',
+                                          border: '1px solid #d1d5db',
+                                        }}
+                                      />
+                                      {String(row[column.field])}
+                                    </span>
+                                  </td>
+                                );
+                              }
+
+                              return (
+                                <td
+                                  key={column.id}
                                   style={{
-                                    backgroundColor: '#dbeafe',
-                                    padding: '4px 12px',
-                                    borderRadius: '12px',
-                                    display: 'inline-block',
+                                    padding: '6px 8px',
+                                    fontSize: '13px',
+                                    color: '#2e2e38',
+                                    verticalAlign: 'middle',
+                                    textAlign: column.textAlign,
                                     transition: 'transform 0.2s ease',
                                   }}
                                 >
-                                  {row.tasks.length}
-                                </span>
-                              </td>
-                            );
-                          }
-
-                          if (column.id === 'owner') {
-                            return (
-                              <td
-                                key={column.id}
-                                style={{
-                                  padding: '6px 8px',
-                                  fontSize: '13px',
-                                  color: '#2e2e38',
-                                  verticalAlign: 'middle',
-                                  textAlign: column.textAlign,
-                                  transition: 'transform 0.2s ease',
-                                }}
-                              >
-                                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                  <img
-                                    src={'/placeholder-user.jpg'}
-                                    alt="Owner"
-                                    style={{
-                                      width: '22px',
-                                      height: '22px',
-                                      borderRadius: '50%',
-                                      objectFit: 'cover',
-                                      background: '#e5e7eb',
-                                      border: '1px solid #d1d5db',
-                                    }}
-                                  />
-                                  {String(row[column.field])}
-                                </span>
-                              </td>
-                            );
-                          }
-
-                          return (
-                            <td
-                              key={column.id}
-                              style={{
-                                padding: '6px 8px',
-                                fontSize: '13px',
-                                color: '#2e2e38',
-                                verticalAlign: 'middle',
-                                textAlign: column.textAlign,
-                                transition: 'transform 0.2s ease',
-                              }}
-                            >
-                              {column.field === 'tasks' ? row.tasks.length : row[column.field]}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                      {row.isExpanded && (
-                        <tr>
-                          <td colSpan={columns.filter(col => visibleColumns.has(col.id)).length} style={{ 
-                            backgroundColor: '#f7f9fb', 
-                            padding: '0',
-                            overflow: 'hidden',
-                          }}>
-                            <div style={{ 
-                              padding: '8px',
-                              animation: 'slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                            }}>
-                              <div
-                                style={{
-                                  fontSize: '13px',
-                                  fontWeight: '600',
-                                  color: '#2e2e38',
-                                  marginBottom: '8px',
-                                  borderBottom: '1px solid #dfe7ef',
-                                  paddingBottom: '4px',
-                                }}
-                              >
-                                Tasks ({row.tasks.length})
-                              </div>
-                              {row.tasks.map((task: TaskData, index: number) => (
-                                <div 
-                                  key={task.taskId}
-                                  style={{
-                                    animation: `fadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) ${index * 0.05}s`,
-                                    marginBottom: 0,
-                                    borderBottom: index < row.tasks.length - 1 ? '1px solid #e5e7eb' : 'none',
-                                    borderRadius: 0,
-                                    background: 'none',
-                                  }}
-                                >
+                                  {column.field === 'tasks' ? row.tasks.length : row[column.field]}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                          {row.isExpanded && (
+                            <tr>
+                              <td colSpan={columns.filter(col => visibleColumns.has(col.id)).length} style={{ 
+                                backgroundColor: '#f7f9fb', 
+                                padding: '0',
+                                overflow: 'hidden',
+                              }}>
+                                <div style={{ 
+                                  padding: '8px',
+                                  animation: 'slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                }}>
                                   <div
                                     style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      padding: '6px',
-                                      backgroundColor: 'transparent',
-                                      borderRadius: 0,
-                                      marginBottom: 0,
-                                      cursor: 'pointer',
-                                      border: 'none',
-                                      transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                                    }}
-                                    onClick={() => handleToggleTask(task.taskId)}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.transform = 'translateY(-1px)';
-                                      e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.05)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.transform = 'none';
-                                      e.currentTarget.style.boxShadow = 'none';
+                                      fontSize: '13px',
+                                      fontWeight: '600',
+                                      color: '#2e2e38',
+                                      marginBottom: '8px',
+                                      borderBottom: '1px solid #dfe7ef',
+                                      paddingBottom: '4px',
                                     }}
                                   >
-                                    <span style={{ 
-                                      marginRight: '8px',
-                                      color: '#6f6f7a',
-                                      fontSize: '14px',
-                                      display: 'inline-block',
-                                      transform: expandedTasks.has(task.taskId) ? 'rotate(90deg)' : 'rotate(0deg)',
-                                      transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                                      lineHeight: 1,
-                                    }}>
-                                      ›
-                                    </span>
-                                    <div style={{ 
-                                      flex: 1,
-                                      fontSize: '14px',
-                                      color: '#2e2e38',
-                                      fontWeight: '500',
-                                      fontFamily: 'ey_interstate, Inter'
-                                    }}>
-                                      {task.taskId}
-                                    </div>
+                                    Tasks ({row.tasks.length})
                                   </div>
-                                  {expandedTasks.has(task.taskId) && (
-                                    <div style={{ 
-                                      marginLeft: '16px',
-                                      marginBottom: '8px',
-                                      padding: '8px',
-                                      backgroundColor: '#f9fafb',
-                                      borderRadius: '8px',
-                                      border: '1px solid #e5e7eb',
-                                      animation: 'slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                                    }}>
-                                      <div style={{
-                                        marginBottom: '8px',
-                                        fontSize: '13px',
-                                        color: '#111827'
-                                      }}>
-                                        <div style={{ fontWeight: '600', marginBottom: '4px' }}>{task.obligationTitle}</div>
-                                        <div style={{ 
-                                          display: 'grid', 
-                                          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                                          gap: '8px',
-                                          marginTop: '6px'
+                                  {row.tasks.map((task: TaskData, index: number) => (
+                                    <div 
+                                      key={task.taskId}
+                                      style={{
+                                        animation: `fadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) ${index * 0.05}s`,
+                                        marginBottom: 0,
+                                        borderBottom: index < row.tasks.length - 1 ? '1px solid #e5e7eb' : 'none',
+                                        borderRadius: 0,
+                                        background: 'none',
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          padding: '6px',
+                                          backgroundColor: 'transparent',
+                                          borderRadius: 0,
+                                          marginBottom: 0,
+                                          cursor: 'pointer',
+                                          border: 'none',
+                                          transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                                        }}
+                                        onClick={() => handleToggleTask(task.taskId)}
+                                        onMouseEnter={(e) => {
+                                          e.currentTarget.style.transform = 'translateY(-1px)';
+                                          e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.05)';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                          e.currentTarget.style.transform = 'none';
+                                          e.currentTarget.style.boxShadow = 'none';
+                                        }}
+                                      >
+                                        <span style={{ 
+                                          marginRight: '8px',
+                                          color: '#6f6f7a',
+                                          fontSize: '14px',
+                                          display: 'inline-block',
+                                          transform: expandedTasks.has(task.taskId) ? 'rotate(90deg)' : 'rotate(0deg)',
+                                          transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                          lineHeight: 1,
                                         }}>
-                                          <div>
-                                            <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Criticality</div>
+                                          ›
+                                        </span>
+                                        <div style={{ 
+                                          flex: 1,
+                                          fontSize: '14px',
+                                          color: '#2e2e38',
+                                          fontWeight: '500',
+                                          fontFamily: 'ey_interstate, Inter'
+                                        }}>
+                                          {task.taskId}
+                                        </div>
+                                      </div>
+                                      {expandedTasks.has(task.taskId) && (
+                                        <div style={{ 
+                                          marginLeft: '16px',
+                                          marginBottom: '8px',
+                                          padding: '8px',
+                                          backgroundColor: '#f9fafb',
+                                          borderRadius: '8px',
+                                          border: '1px solid #e5e7eb',
+                                          animation: 'slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                        }}>
+                                          <div style={{
+                                            marginBottom: '8px',
+                                            fontSize: '13px',
+                                            color: '#111827'
+                                          }}>
+                                            <div style={{ fontWeight: '600', marginBottom: '4px' }}>{task.obligationTitle}</div>
                                             <div style={{ 
-                                              color: task.criticality === 'High' ? '#ef4444' : 
-                                                    task.criticality === 'Medium' ? '#f59e0b' : '#10b981',
-                                              fontWeight: '500'
-                                            }}>{task.criticality}</div>
-                                          </div>
-                                          <div>
-                                            <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Triggered Tasks</div>
-                                            <div style={{ fontWeight: '500' }}>{task.triggeredTasks}</div>
-                                          </div>
-                                          <div>
-                                            <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Open Tasks</div>
-                                            <div style={{ fontWeight: '500' }}>{task.openTasks}</div>
-                                          </div>
-                                          <div>
-                                            <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Compliance</div>
-                                            <div style={{ 
-                                              display: 'inline-block',
-                                              padding: '2px 8px',
-                                              borderRadius: '12px',
-                                              fontSize: '12px',
-                                              fontWeight: '500',
-                                              backgroundColor: getComplianceColor(task.compliance),
-                                              color: '#fff'
+                                              display: 'grid', 
+                                              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                                              gap: '8px',
+                                              marginTop: '6px'
                                             }}>
-                                              {task.compliance}
+                                              <div>
+                                                <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Criticality</div>
+                                                <div style={{ 
+                                                  color: task.criticality === 'High' ? '#ef4444' : 
+                                                        task.criticality === 'Medium' ? '#f59e0b' : '#10b981',
+                                                  fontWeight: '500'
+                                                }}>{task.criticality}</div>
+                                              </div>
+                                              <div>
+                                                <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Triggered Tasks</div>
+                                                <div style={{ fontWeight: '500' }}>{task.triggeredTasks}</div>
+                                              </div>
+                                              <div>
+                                                <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Open Tasks</div>
+                                                <div style={{ fontWeight: '500' }}>{task.openTasks}</div>
+                                              </div>
+                                              <div>
+                                                <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Compliance</div>
+                                                <div style={{ 
+                                                  display: 'inline-block',
+                                                  padding: '2px 8px',
+                                                  borderRadius: '12px',
+                                                  fontSize: '12px',
+                                                  fontWeight: '500',
+                                                  backgroundColor: getComplianceColor(task.compliance),
+                                                  color: '#fff'
+                                                }}>
+                                                  {task.compliance}
+                                                </div>
+                                              </div>
                                             </div>
                                           </div>
                                         </div>
-                                      </div>
+                                      )}
                                     </div>
-                                  )}
+                                  ))}
                                 </div>
-                              ))}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  ))
-                )}
-              </tbody>
-            </>
-          ) : (
-            <>
-              <thead>
-                <tr style={{ background: 'transparent', borderBottom: '1px solid #dfe7ef' }}>
-                  {transposeData(groupedRows)[0].map((cell, index) => (
-                    <th
-                      key={cell.id}
-                      style={{
-                        padding: '12px 16px',
-                        textAlign: index === 0 ? 'left' : 'center',
-                        fontWeight: 600,
-                        fontSize: '14px',
-                        color: '#2e2e38',
-                        borderBottom: '1px solid #dfe7ef',
-                        background: index === 0 ? 'transparent' : '#f7f9fb',
-                        width: index === 0 ? '200px' : '160px',
-                        minWidth: index === 0 ? '200px' : '160px',
-                        cursor: index === 0 ? 'default' : 'pointer',
-                        userSelect: 'none',
-                        borderLeft: index === 0 ? 'none' : '1px solid #dfe7ef',
-                      }}
-                      onClick={() => {
-                        if (index > 0 && cell.isExpandable) {
-                          handleToggleRow(groupedRows[index - 1].id);
-                        }
-                      }}
-                    >
-                      <div style={{ 
-                        display: 'flex', 
-                        alignItems: 'center',
-                        justifyContent: index === 0 ? 'flex-start' : 'center',
-                        gap: '8px' 
-                      }}>
-                        {index > 0 && (
-                          <span style={{ 
-                            fontSize: '14px',
-                            display: 'inline-block',
-                            transform: groupedRows[index - 1]?.isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                            transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                            lineHeight: 1,
-                            color: '#6f6f7a'
-                          }}>
-                            ›
-                          </span>
-                        )}
-                        {cell.value}
-                      </div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {transposeData(groupedRows).slice(1).map((row, rowIndex) => (
-                  <React.Fragment key={`row-${rowIndex}`}>
-                    <tr
-                      style={{
-                        background: '#fff',
-                        borderBottom: '1px solid #dfe7ef',
-                        transition: 'background 0.2s ease',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#f7f9fb';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = '#fff';
-                      }}
-                    >
-                      {row.map((cell, cellIndex) => (
-                        <td
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      ))
+                    )}
+                  </tbody>
+                </>
+              ) : (
+                <>
+                  <thead>
+                    <tr style={{ background: 'transparent', borderBottom: '1px solid #dfe7ef' }}>
+                      {transposeData(groupedRows)[0].map((cell, index) => (
+                        <th
                           key={cell.id}
                           style={{
                             padding: '12px 16px',
-                            textAlign: cellIndex === 0 ? 'left' : 'center',
+                            textAlign: index === 0 ? 'left' : 'center',
+                            fontWeight: 600,
                             fontSize: '14px',
                             color: '#2e2e38',
-                            verticalAlign: 'middle',
-                            fontWeight: cellIndex === 0 ? 600 : 400,
+                            borderBottom: '1px solid #dfe7ef',
+                            background: index === 0 ? 'transparent' : '#f7f9fb',
+                            width: index === 0 ? '200px' : '160px',
+                            minWidth: index === 0 ? '200px' : '160px',
+                            cursor: index === 0 ? 'default' : 'pointer',
+                            userSelect: 'none',
+                            borderLeft: index === 0 ? 'none' : '1px solid #dfe7ef',
+                          }}
+                          onClick={() => {
+                            if (index > 0 && cell.isExpandable) {
+                              handleToggleRow(groupedRows[index - 1].id);
+                            }
                           }}
                         >
-                          {cell.value}
-                        </td>
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center',
+                            justifyContent: index === 0 ? 'flex-start' : 'center',
+                            gap: '8px' 
+                          }}>
+                            {index > 0 && (
+                              <span style={{ 
+                                fontSize: '14px',
+                                display: 'inline-block',
+                                transform: groupedRows[index - 1]?.isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                                transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                lineHeight: 1,
+                                color: '#6f6f7a'
+                              }}>
+                                ›
+                              </span>
+                            )}
+                            {cell.value}
+                          </div>
+                        </th>
                       ))}
                     </tr>
-                    {row[0].originalField === 'tasks' && row.map((cell, cellIndex) => {
-                      if (cellIndex === 0 || !cell.tasks) return null;
-                      const originalRow = groupedRows[cell.rowIndex!];
-                      if (!originalRow?.isExpanded) return null;
+                  </thead>
+                  <tbody>
+                    {transposeData(groupedRows).slice(1).map((row, rowIndex) => (
+                      <React.Fragment key={`row-${rowIndex}`}>
+                        <tr
+                          style={{
+                            background: '#fff',
+                            borderBottom: '1px solid #dfe7ef',
+                            transition: 'background 0.2s ease',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#f7f9fb';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = '#fff';
+                          }}
+                        >
+                          {row.map((cell, cellIndex) => (
+                            <td
+                              key={cell.id}
+                              style={{
+                                padding: '12px 16px',
+                                textAlign: cellIndex === 0 ? 'left' : 'center',
+                                fontSize: '14px',
+                                color: '#2e2e38',
+                                verticalAlign: 'middle',
+                                fontWeight: cellIndex === 0 ? 600 : 400,
+                              }}
+                            >
+                              {cell.value}
+                            </td>
+                          ))}
+                        </tr>
+                        {row[0].originalField === 'tasks' && row.map((cell, cellIndex) => {
+                          if (cellIndex === 0 || !cell.tasks) return null;
+                          const originalRow = groupedRows[cell.rowIndex!];
+                          if (!originalRow?.isExpanded) return null;
 
-                      return (
-                        <tr key={`expanded-${cell.id}`}>
-                          <td colSpan={cellIndex} style={{ padding: 0 }}></td>
-                          <td style={{ 
-                            backgroundColor: '#f7f9fb', 
-                            padding: '0',
-                            overflow: 'hidden',
-                            borderLeft: '1px solid #dfe7ef',
-                          }}>
-                            <div style={{ 
-                              padding: '16px',
-                              animation: 'slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                            }}>
-                              <div
-                                style={{
-                                  fontSize: '14px',
-                                  fontWeight: '600',
-                                  color: '#2e2e38',
-                                  marginBottom: '16px',
-                                  borderBottom: '1px solid #dfe7ef',
-                                  paddingBottom: '8px',
-                                }}
-                              >
-                                Tasks ({cell.tasks.length})
-                              </div>
-                              {cell.tasks.map((task: TaskData, index: number) => (
-                                <div 
-                                  key={task.taskId}
-                                  style={{
-                                    animation: `fadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) ${index * 0.05}s`,
-                                  }}
-                                >
+                          return (
+                            <tr key={`expanded-${cell.id}`}>
+                              <td colSpan={cellIndex} style={{ padding: 0 }}></td>
+                              <td style={{ 
+                                backgroundColor: '#f7f9fb', 
+                                padding: '0',
+                                overflow: 'hidden',
+                                borderLeft: '1px solid #dfe7ef',
+                              }}>
+                                <div style={{ 
+                                  padding: '16px',
+                                  animation: 'slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                }}>
                                   <div
                                     style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      padding: '12px',
-                                      backgroundColor: '#fff',
-                                      borderRadius: '6px',
-                                      marginBottom: '8px',
-                                      cursor: 'pointer',
-                                      border: '1px solid #dfe7ef',
-                                      transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                                    }}
-                                    onClick={() => handleToggleTask(task.taskId)}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.transform = 'translateY(-1px)';
-                                      e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.05)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.transform = 'none';
-                                      e.currentTarget.style.boxShadow = 'none';
+                                      fontSize: '14px',
+                                      fontWeight: '600',
+                                      color: '#2e2e38',
+                                      marginBottom: '16px',
+                                      borderBottom: '1px solid #dfe7ef',
+                                      paddingBottom: '8px',
                                     }}
                                   >
-                                    <span style={{ 
-                                      marginRight: '8px',
-                                      color: '#6f6f7a',
-                                      fontSize: '14px',
-                                      display: 'inline-block',
-                                      transform: expandedTasks.has(task.taskId) ? 'rotate(90deg)' : 'rotate(0deg)',
-                                      transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                                      lineHeight: 1,
-                                    }}>
-                                      ›
-                                    </span>
-                                    <div style={{ 
-                                      flex: 1,
-                                      fontSize: '14px',
-                                      color: '#2e2e38',
-                                      fontWeight: '500',
-                                      fontFamily: 'ey_interstate, Inter'
-                                    }}>
-                                      {task.taskId}
-                                    </div>
+                                    Tasks ({cell.tasks.length})
                                   </div>
-                                  {expandedTasks.has(task.taskId) && (
-                                    <div style={{ 
-                                      marginLeft: '24px', 
-                                      marginBottom: '16px',
-                                      padding: '16px',
-                                      backgroundColor: '#f9fafb',
-                                      borderRadius: '8px',
-                                      border: '1px solid #e5e7eb',
-                                      animation: 'slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                                    }}>
-                                      <div style={{
-                                        marginBottom: '16px',
-                                        fontSize: '14px',
-                                        color: '#111827'
-                                      }}>
-                                        <div style={{ fontWeight: '600', marginBottom: '8px' }}>{task.obligationTitle}</div>
-                                        <div style={{ 
-                                          display: 'grid', 
-                                          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                                          gap: '16px',
-                                          marginTop: '12px'
+                                  {cell.tasks.map((task: TaskData, index: number) => (
+                                    <div 
+                                      key={task.taskId}
+                                      style={{
+                                        animation: `fadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) ${index * 0.05}s`,
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          padding: '12px',
+                                          backgroundColor: '#fff',
+                                          borderRadius: '6px',
+                                          marginBottom: '8px',
+                                          cursor: 'pointer',
+                                          border: '1px solid #dfe7ef',
+                                          transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                                        }}
+                                        onClick={() => handleToggleTask(task.taskId)}
+                                        onMouseEnter={(e) => {
+                                          e.currentTarget.style.transform = 'translateY(-1px)';
+                                          e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.05)';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                          e.currentTarget.style.transform = 'none';
+                                          e.currentTarget.style.boxShadow = 'none';
+                                        }}
+                                      >
+                                        <span style={{ 
+                                          marginRight: '8px',
+                                          color: '#6f6f7a',
+                                          fontSize: '14px',
+                                          display: 'inline-block',
+                                          transform: expandedTasks.has(task.taskId) ? 'rotate(90deg)' : 'rotate(0deg)',
+                                          transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                          lineHeight: 1,
                                         }}>
-                                          <div>
-                                            <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Criticality</div>
+                                          ›
+                                        </span>
+                                        <div style={{ 
+                                          flex: 1,
+                                          fontSize: '14px',
+                                          color: '#2e2e38',
+                                          fontWeight: '500',
+                                          fontFamily: 'ey_interstate, Inter'
+                                        }}>
+                                          {task.taskId}
+                                        </div>
+                                      </div>
+                                      {expandedTasks.has(task.taskId) && (
+                                        <div style={{ 
+                                          marginLeft: '24px', 
+                                          marginBottom: '16px',
+                                          padding: '16px',
+                                          backgroundColor: '#f9fafb',
+                                          borderRadius: '8px',
+                                          border: '1px solid #e5e7eb',
+                                          animation: 'slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                        }}>
+                                          <div style={{
+                                            marginBottom: '16px',
+                                            fontSize: '14px',
+                                            color: '#111827'
+                                          }}>
+                                            <div style={{ fontWeight: '600', marginBottom: '8px' }}>{task.obligationTitle}</div>
                                             <div style={{ 
-                                              color: task.criticality === 'High' ? '#ef4444' : 
-                                                    task.criticality === 'Medium' ? '#f59e0b' : '#10b981',
-                                              fontWeight: '500'
-                                            }}>{task.criticality}</div>
-                                          </div>
-                                          <div>
-                                            <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Triggered Tasks</div>
-                                            <div style={{ fontWeight: '500' }}>{task.triggeredTasks}</div>
-                                          </div>
-                                          <div>
-                                            <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Open Tasks</div>
-                                            <div style={{ fontWeight: '500' }}>{task.openTasks}</div>
-                                          </div>
-                                          <div>
-                                            <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Compliance</div>
-                                            <div style={{ 
-                                              display: 'inline-block',
-                                              padding: '2px 8px',
-                                              borderRadius: '12px',
-                                              fontSize: '12px',
-                                              fontWeight: '500',
-                                              backgroundColor: getComplianceColor(task.compliance),
-                                              color: '#fff'
+                                              display: 'grid', 
+                                              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                                              gap: '16px',
+                                              marginTop: '12px'
                                             }}>
-                                              {task.compliance}
+                                              <div>
+                                                <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Criticality</div>
+                                                <div style={{ 
+                                                  color: task.criticality === 'High' ? '#ef4444' : 
+                                                        task.criticality === 'Medium' ? '#f59e0b' : '#10b981',
+                                                  fontWeight: '500'
+                                                }}>{task.criticality}</div>
+                                              </div>
+                                              <div>
+                                                <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Triggered Tasks</div>
+                                                <div style={{ fontWeight: '500' }}>{task.triggeredTasks}</div>
+                                              </div>
+                                              <div>
+                                                <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Open Tasks</div>
+                                                <div style={{ fontWeight: '500' }}>{task.openTasks}</div>
+                                              </div>
+                                              <div>
+                                                <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Compliance</div>
+                                                <div style={{ 
+                                                  display: 'inline-block',
+                                                  padding: '2px 8px',
+                                                  borderRadius: '12px',
+                                                  fontSize: '12px',
+                                                  fontWeight: '500',
+                                                  backgroundColor: getComplianceColor(task.compliance),
+                                                  color: '#fff'
+                                                }}>
+                                                  {task.compliance}
+                                                </div>
+                                              </div>
                                             </div>
                                           </div>
                                         </div>
-                                      </div>
+                                      )}
                                     </div>
-                                  )}
+                                  ))}
                                 </div>
-                              ))}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </>
-          )}
-        </table>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
+                    ))}
+                  </tbody>
+                </>
+              )}
+            </table>
+          </div>
+        </div>
       </div>
+      {showConfigModal && (
+        <TableSidebar
+          columns={columns}
+          visibleColumns={visibleColumns}
+          pendingVisibleColumns={pendingVisibleColumns}
+          setPendingVisibleColumns={setPendingVisibleColumns}
+          onExpandAll={handleExpandAll}
+          onCollapseAll={handleCollapseAll}
+          isTransposed={pendingIsTransposed}
+          setIsTransposed={setPendingIsTransposed}
+          onApply={(filterState) => {
+            if (filterState) setFilterState(filterState);
+            handleSidebarApply();
+            setShowConfigModal(false);
+          }}
+          onReset={handleSidebarReset}
+          sortRules={sortRules}
+          setSortRules={setSortRules}
+          filters={filters}
+          setFilters={setFilters}
+          condition={condition}
+          setCondition={setCondition}
+          modal={true}
+          onClose={() => setShowConfigModal(false)}
+        />
+      )}
 
       <style jsx>{`
         @keyframes slideDown {
@@ -1410,17 +1276,6 @@ const TaskTable: React.FC<TaskTableProps> = ({ tasks }) => {
           }
         }
       `}</style>
-
-      {/* Filter Panel */}
-      <FilterPanel
-        isOpen={filterPanelOpen}
-        onClose={() => setFilterPanelOpen(false)}
-        data={tasks}
-        onApplyFilters={handleApplyFilters}
-      />
-
-      {/* Sort Panel */}
-      <SortPanel isOpen={sortPanelOpen} onClose={() => setSortPanelOpen(false)} onApplySort={handleApplySort} />
     </div>
   )
 }
