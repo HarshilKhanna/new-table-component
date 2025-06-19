@@ -1,6 +1,11 @@
 import type { TaskData, TaskRow } from "../types/task"
-import type { FilterState } from "../components/FilterPanel"
-import type { SortState } from "../components/FilterPanel/SortPanel"
+
+// Inline types to avoid import errors
+export type FilterState = {
+  condition: 'AND' | 'OR',
+  filters: Record<string, { operator: string, value: string | number[] }>
+};
+export type SortState = { field: string; order: 'asc' | 'desc' };
 
 export function groupTasksByAttributes(tasks: TaskData[]): TaskRow[] {
   const groupedRows: TaskRow[] = []
@@ -87,6 +92,16 @@ export function applyTaskFilters(tasks: TaskData[], filterState: FilterState): T
           return Number(value) >= Number(filterValue)
         case "lessThanOrEqual":
           return Number(value) <= Number(filterValue)
+        case "range":
+          if (Array.isArray(filterValue) && filterValue.length === 2) {
+            const numValue = Number(value);
+            const from = Number(filterValue[0]);
+            const to = Number(filterValue[1]);
+            if (!isNaN(from) && !isNaN(to)) {
+              return numValue >= from && numValue <= to;
+            }
+          }
+          return false;
         default:
           return false
       }

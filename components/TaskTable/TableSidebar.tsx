@@ -1,5 +1,12 @@
 import React from 'react';
 
+interface FilterRow {
+  field: string;
+  operator: string;
+  value: string | number[];
+  logic?: 'AND' | 'OR';
+}
+
 interface TableSidebarProps {
   columns: { id: string; label: string }[];
   visibleColumns: Set<string>;
@@ -13,10 +20,12 @@ interface TableSidebarProps {
   onReset: () => void;
   sortRules: { field: string; order: 'asc' | 'desc' }[];
   setSortRules: React.Dispatch<React.SetStateAction<{ field: string; order: 'asc' | 'desc' }[]>>;
-  filters: { field: string; operator: string; value: string }[];
-  setFilters: React.Dispatch<React.SetStateAction<{ field: string; operator: string; value: string }[]>>;
+  filters: FilterRow[];
+  setFilters: React.Dispatch<React.SetStateAction<FilterRow[]>>;
   condition: 'AND' | 'OR';
   setCondition: React.Dispatch<React.SetStateAction<'AND' | 'OR'>>;
+  viewType: 'grouped' | 'flat';
+  onViewTypeChange: (viewType: 'grouped' | 'flat') => void;
   modal?: boolean;
   onClose?: () => void;
 }
@@ -52,6 +61,8 @@ const TableSidebar: React.FC<TableSidebarProps> = ({
   setFilters,
   condition,
   setCondition,
+  viewType,
+  onViewTypeChange,
   modal = false,
   onClose,
 }) => {
@@ -177,13 +188,14 @@ const TableSidebar: React.FC<TableSidebarProps> = ({
   };
 
   const getOperatorOptions = (field: string) => {
-    if (field === 'triggeredTasks' || field === 'openTasks') {
+    if (field === 'triggeredTasks' || field === 'openTasks' || field === 'taskId' || field === 'contractId') {
       return [
         { label: 'equals', value: 'is' },
         { label: 'greater than', value: 'greaterThan' },
         { label: 'less than', value: 'lessThan' },
         { label: 'greater than or equal', value: 'greaterThanOrEqual' },
         { label: 'less than or equal', value: 'lessThanOrEqual' },
+        { label: 'range', value: 'range' },
       ];
     } else {
       return [
@@ -201,10 +213,14 @@ const TableSidebar: React.FC<TableSidebarProps> = ({
   };
   const handleFilterChange = (index: number, field: string, value: any) => {
     const newFilters = [...filters];
-    newFilters[index] = { ...newFilters[index], [field]: value };
-    if (field === 'field') {
-      newFilters[index].operator = isNumericField(value) ? 'is' : 'is';
-      newFilters[index].value = '';
+    if (field === 'logic') {
+      newFilters[index].logic = value;
+    } else {
+      newFilters[index] = { ...newFilters[index], [field]: value };
+      if (field === 'field') {
+        newFilters[index].operator = isNumericField(value) ? 'is' : 'is';
+        newFilters[index].value = '';
+      }
     }
     setFilters(newFilters);
   };
@@ -216,9 +232,13 @@ const TableSidebar: React.FC<TableSidebarProps> = ({
     const filterState: any = { condition, filters: {} };
     filters.forEach((filter) => {
       if (filter.field && (filter.value || filter.operator === 'isEmpty' || filter.operator === 'isNotEmpty')) {
+        let value = filter.value;
+        if (filter.operator === 'range' && Array.isArray(value)) {
+          value = [Number(value[0]), Number(value[1])];
+        }
         (filterState.filters as any)[filter.field] = {
           operator: filter.operator,
-          value: filter.value,
+          value,
         };
       }
     });
@@ -358,12 +378,12 @@ const TableSidebar: React.FC<TableSidebarProps> = ({
               >
                 Clear All
               </button>
-              <button
+            <button
                 onClick={onApply}
                 style={{ background: '#2563eb', color: '#fff', border: '1px solid #d1d5db', borderRadius: 8, padding: '10px 16px', fontWeight: 500, fontSize: 14, cursor: 'pointer', boxShadow: '0 2px 8px rgba(59,130,246,0.08)' }}
-              >
+            >
                 Apply Sort
-              </button>
+            </button>
             </div>
           </div>
           {/* Filtering */}
@@ -373,59 +393,110 @@ const TableSidebar: React.FC<TableSidebarProps> = ({
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {filters.map((filter, index) => (
-                <div key={index} style={{ marginBottom: 8, background: '#fff', borderRadius: 8, boxShadow: 'none', padding: 0 }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
-                    <select
-                      value={filter.field}
-                      onChange={e => handleFilterChange(index, 'field', e.target.value)}
-                      style={{ flex: 1, padding: '8px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, backgroundColor: 'white', outline: 'none', minWidth: 0 }}
-                    >
-                      <option value="">Select field</option>
-                      {FIELD_OPTIONS.map(option => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                    <select
-                      value={filter.operator}
-                      onChange={e => handleFilterChange(index, 'operator', e.target.value)}
-                      style={{ flex: 1, padding: '8px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, backgroundColor: 'white', outline: 'none', minWidth: 0 }}
-                    >
-                      {getOperatorOptions(filter.field).map(option => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                    <div style={{ flex: '0 0 20px', display: 'flex', justifyContent: 'flex-end' }}>
-                      <button
-                        onClick={() => handleRemoveFilter(index)}
-                        disabled={filters.length === 1}
-                        style={{ width: 20, height: 20, padding: 0, border: 'none', borderRadius: '50%', backgroundColor: 'transparent', color: filters.length === 1 ? '#9ca3af' : '#6b7280', cursor: filters.length === 1 ? 'not-allowed' : 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                        title="Remove filter"
+                <React.Fragment key={index}>
+                  {index > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', margin: '2px 0 2px 0' }}>
+                      <select
+                        value={filter.logic || 'AND'}
+                        onChange={e => handleFilterChange(index, 'logic', e.target.value)}
+                        style={{
+                          width: 60,
+                          padding: '4px 8px',
+                          border: '1.5px solid #d1d5db',
+                          borderRadius: 7,
+                          fontWeight: 500,
+                          fontSize: 14,
+                          color: '#222',
+                          background: '#fff',
+                          outline: 'none',
+                          marginBottom: 0,
+                          fontFamily: 'inherit',
+                        }}
                       >
-                        ×
-                      </button>
+                        <option value="AND">AND</option>
+                        <option value="OR">OR</option>
+                      </select>
                     </div>
-                  </div>
-                  {filter.operator === 'isEmpty' || filter.operator === 'isNotEmpty' ? (
-                    <div style={{ padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 14, color: '#6b7280', backgroundColor: '#f9fafb', fontStyle: 'italic', marginBottom: 0 }}>No value needed</div>
-                  ) : isNumericField(filter.field) ? (
-                    <input
-                      type="number"
-                      value={filter.value as string}
-                      onChange={e => handleFilterChange(index, 'value', e.target.value)}
-                      style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, outline: 'none', marginBottom: 0 }}
-                      min="0"
-                      placeholder="Enter value"
-                    />
-                  ) : (
-                    <input
-                      type="text"
-                      value={filter.value as string}
-                      onChange={e => handleFilterChange(index, 'value', e.target.value)}
-                      style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, outline: 'none', marginBottom: 0 }}
-                      placeholder="Enter value"
-                    />
                   )}
-                </div>
+                  <div style={{ marginBottom: 4, background: '#fff', borderRadius: 8, boxShadow: 'none', padding: 0 }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
+                      <select
+                        value={filter.field}
+                        onChange={e => handleFilterChange(index, 'field', e.target.value)}
+                        style={{ flex: 1, padding: '8px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, backgroundColor: 'white', outline: 'none', minWidth: 0 }}
+                      >
+                        <option value="">Select field</option>
+                        {FIELD_OPTIONS.map(option => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={filter.operator}
+                        onChange={e => handleFilterChange(index, 'operator', e.target.value)}
+                        style={{ flex: 1, padding: '8px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, backgroundColor: 'white', outline: 'none', minWidth: 0 }}
+                      >
+                        {getOperatorOptions(filter.field).map(option => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                      <div style={{ flex: '0 0 20px', display: 'flex', justifyContent: 'flex-end' }}>
+                        <button
+                          onClick={() => handleRemoveFilter(index)}
+                          disabled={filters.length === 1}
+                          style={{ width: 20, height: 20, padding: 0, border: 'none', borderRadius: '50%', backgroundColor: 'transparent', color: filters.length === 1 ? '#9ca3af' : '#6b7280', cursor: filters.length === 1 ? 'not-allowed' : 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          title="Remove filter"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                    {filter.operator === 'isEmpty' || filter.operator === 'isNotEmpty' ? (
+                      <div style={{ padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 14, color: '#6b7280', backgroundColor: '#f9fafb', fontStyle: 'italic', marginBottom: 0 }}>No value needed</div>
+                    ) : filter.operator === 'range' && (filter.field === 'taskId' || filter.field === 'triggeredTasks' || filter.field === 'openTasks' || filter.field === 'contractId') ? (
+                      <div style={{ display: 'flex', gap: 8, width: '100%' }}>
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                  
+                          <input
+                            type="number"
+                            value={Array.isArray(filter.value) ? filter.value[0] || '' : ''}
+                            onChange={e => handleFilterChange(index, 'value', [e.target.value, Array.isArray(filter.value) ? filter.value[1] : ''])}
+                            style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none' }}
+                            min="0"
+                            placeholder="From"
+                          />
+                        </div>
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                          
+                          <input
+                            type="number"
+                            value={Array.isArray(filter.value) ? filter.value[1] || '' : ''}
+                            onChange={e => handleFilterChange(index, 'value', [Array.isArray(filter.value) ? filter.value[0] : '', e.target.value])}
+                            style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none' }}
+                            min="0"
+                            placeholder="To"
+                          />
+                        </div>
+                      </div>
+                    ) : isNumericField(filter.field) ? (
+                      <input
+                        type="number"
+                        value={filter.value as string}
+                        onChange={e => handleFilterChange(index, 'value', e.target.value)}
+                        style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, outline: 'none', marginBottom: 0 }}
+                        min="0"
+                        placeholder="Enter value"
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        value={filter.value as string}
+                        onChange={e => handleFilterChange(index, 'value', e.target.value)}
+                        style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, outline: 'none', marginBottom: 0 }}
+                        placeholder="Enter value"
+                      />
+                    )}
+                  </div>
+                </React.Fragment>
               ))}
               <button
                 onClick={handleAddFilter}
@@ -441,12 +512,12 @@ const TableSidebar: React.FC<TableSidebarProps> = ({
               >
                 Clear All
               </button>
-              <button
+            <button
                 onClick={handleApplyFilters}
                 style={{ background: '#2563eb', color: '#fff', border: '1px solid #d1d5db', borderRadius: 8, padding: '10px 16px', fontWeight: 500, fontSize: 14, cursor: 'pointer', boxShadow: '0 2px 8px rgba(59,130,246,0.08)' }}
-              >
+            >
                 Apply Filters
-              </button>
+            </button>
             </div>
           </div>
           {/* Row Operations */}
@@ -466,6 +537,36 @@ const TableSidebar: React.FC<TableSidebarProps> = ({
             >
               Collapse All
             </button>
+          </div>
+          {/* View Type */}
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              View Type
+            </div>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 15, cursor: 'pointer', fontWeight: 500 }}>
+                <input
+                  type="radio"
+                  name="viewType"
+                  value="grouped"
+                  checked={viewType === 'grouped'}
+                  onChange={() => onViewTypeChange('grouped')}
+                  style={{ accentColor: '#2563eb' }}
+                />
+                Grouped View
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 15, cursor: 'pointer', fontWeight: 500 }}>
+                <input
+                  type="radio"
+                  name="viewType"
+                  value="flat"
+                  checked={viewType === 'flat'}
+                  onChange={() => onViewTypeChange('flat')}
+                  style={{ accentColor: '#2563eb' }}
+                />
+                Flat View
+              </label>
+            </div>
           </div>
           {/* Column Visibility */}
           <div style={{ marginBottom: 18 }}>
@@ -491,8 +592,8 @@ const TableSidebar: React.FC<TableSidebarProps> = ({
             <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               Transpose Table
             </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 15, fontWeight: 500, cursor: 'pointer' }}>
-              <span style={switchTrack} onClick={() => setIsTransposed(!isTransposed)}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 15, fontWeight: 500, cursor: viewType === 'flat' ? 'pointer' : 'not-allowed', opacity: viewType === 'flat' ? 1 : 0.5 }}>
+              <span style={{ ...switchTrack, pointerEvents: viewType === 'flat' ? 'auto' : 'none' }} onClick={() => viewType === 'flat' && setIsTransposed(!isTransposed)}>
                 <span style={switchThumb} />
               </span>
               Transpose Table
